@@ -99,12 +99,12 @@ struct tftp_conn *tftp_connect(int type, char *fname, char *mode,
     hints.ai_family = PF_UNSPEC;
     hints.ai_socktype = SOCK_DGRAM;
     char port_str[5];
-    sprintf(port_str, "%d", TFTP_PORT);
+    sprintf(port_str, "%d", TFTP_PORT);//TFTP_PORT is 69
 
     /* get address from host name.
 	 * If error, gracefully clean up.*/
     int status;
-    if((status=getaddrinfo(NULL, "TFTP_PORT",&hints, &res)) !=0 ){
+    if((status=getaddrinfo(hostname, port_str, &hints, &res)) !=0 ){
     	fprintf(stderr, "getaddressinfo error: %s\n", gai_strerror(status));
     	freeaddinfo(res);
     	exit(1);
@@ -126,6 +126,8 @@ struct tftp_conn *tftp_connect(int type, char *fname, char *mode,
 
 	memset(tc->msgbuf, 0, MSGBUF_SIZE);
 
+	//connect(tc->sock, res->ai_addr, res->ai_addrlen);
+
 	return tc;
 }
 
@@ -145,13 +147,11 @@ int tftp_send_rrq(struct tftp_conn *tc)
 				u_int16_t opcode;
 				char req[0];
 			};
-			*/
-		tc->msgbuf="read req";
-		struct tftp_rrq rrq;
-		rrq.opcode=1;
-		rrq.req=;
-		//recvfrom(int sockfd, void* buf, int len, unsigned int flags, struct sockaddr *from, int *fromlen);
-		int b= recvfrom(tc->sock, tc->msgbuf, int len, unsigned int flags, tc->peer_addr, int *fromlen);		}
+		*/
+		struct tftp_rrq *rrq;
+		rrq.opcode=OPCODE_RRQ;
+		rrq.req=tc->msgbuf;
+		int b = sendto(tc->sock, rrq, int len, 0, tc->peer_addr, tc->addrlen);
 
         return b;
 }
@@ -172,13 +172,12 @@ int tftp_send_wrq(struct tftp_conn *tc)
 	u_int16_t opcode;
 	char req[0];
 	};*/	
-	tc->msgbuf="writing req";	
 	struct tftp_wrq *wrq;
-	wrq->opcode=2;
-	wrq->req=;
-	int b = sendto(tc->sock, tc->msgbuf, int len, unsigned int flags, tc->peer_addr, tc->addrlen);
+	wrq->opcode=OPCODE_WRQ;
+	wrq->req=tc->msgbuf;
+	int b = sendto(tc->sock, wrq, int len, 0, tc->peer_addr, tc->addrlen);
 
-        return b;
+    return b;
 }
 
 
@@ -241,6 +240,8 @@ int tftp_transfer(struct tftp_conn *tc)
 
         /* Check if we are putting a file or getting a file and send
          * the corresponding request. */
+       	
+      	/* ... */
        	if (tc->type == TFTP_TYPE_PUT){
        		tftp_send_wrq(tc);
        		//if returns -1 is error
@@ -250,8 +251,6 @@ int tftp_transfer(struct tftp_conn *tc)
 			tftp_send_rrq(tc);
 			//if returns -1 is error
 		}
-
-        /* ... */
 
         /*
           Put or get the file, block by block, in a loop.
@@ -269,12 +268,7 @@ int tftp_transfer(struct tftp_conn *tc)
 		switch ( 0 /* change for msg type */ ) {
 		case OPCODE_DATA:
                         /* Received data block, send ack */
-			/*
-struct tftp_err {
-	u_int16_t opcode;
-	u_int16_t errcode;
-	char errmsg[0];
-};*/
+			
 			break;
 		case OPCODE_ACK:
                         /* Received ACK, send next block */
