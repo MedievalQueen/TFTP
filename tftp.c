@@ -146,13 +146,14 @@ int tftp_send_rrq(struct tftp_conn *tc)
 				char req[0];
 			};
 			*/
-			struct tftp_rrq rrq;
-			rrq.opcode=1;
-			rrq.req=;
-			//recvfrom(int sockfd, void* buf, int len, unsigned int flags, struct sockaddr *from, int *fromlen);
-			recvfrom(tc->sock, tc->msgbuf, int len, unsigned int flags, tc->peer_addr, int *fromlen);		}
+		tc->msgbuf="read req";
+		struct tftp_rrq rrq;
+		rrq.opcode=1;
+		rrq.req=;
+		//recvfrom(int sockfd, void* buf, int len, unsigned int flags, struct sockaddr *from, int *fromlen);
+		int b= recvfrom(tc->sock, tc->msgbuf, int len, unsigned int flags, tc->peer_addr, int *fromlen);		}
 
-        return 0;
+        return b;
 }
 /*
 
@@ -171,11 +172,11 @@ int tftp_send_wrq(struct tftp_conn *tc)
 	u_int16_t opcode;
 	char req[0];
 	};*/	
-	int b;	
+	tc->msgbuf="writing req";	
 	struct tftp_wrq *wrq;
 	wrq->opcode=2;
 	wrq->req=;
-	sendto(tc->sock, tc->msgbuf, int len, unsigned int flags, tc->peer_addr, tc->addrlen);
+	int b = sendto(tc->sock, tc->msgbuf, int len, unsigned int flags, tc->peer_addr, tc->addrlen);
 
         return b;
 }
@@ -242,18 +243,14 @@ int tftp_transfer(struct tftp_conn *tc)
          * the corresponding request. */
        	if (tc->type == TFTP_TYPE_PUT){
        		tftp_send_wrq(tc);
+       		//if returns -1 is error
 
        	}
 		else if (tc->type == TFTP_TYPE_GET){
-
+			tftp_send_rrq(tc);
+			//if returns -1 is error
 		}
 
-		if (tc->fp == NULL) {
-			fprintf(stderr, "File I/O error.\n");
-			close(tc->sock);
-			free(tc);
-			return NULL;
-		}
         /* ... */
 
         /*
