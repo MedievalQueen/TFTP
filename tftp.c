@@ -149,9 +149,12 @@ int tftp_send_rrq(struct tftp_conn *tc)
 			};
 		*/
 		struct tftp_rrq *rrq;
-		rrq.opcode=OPCODE_RRQ;
-		rrq.req=tc->msgbuf;
-		int b = sendto(tc->sock, rrq, int len, 0, tc->peer_addr, tc->addrlen);
+		rrq->opcode=OPCODE_RRQ;
+		strcpy(&rqq->req[0], tc->fname);
+		strcpy(&rqq->req[strlen(tc->fname)+1], tc->mode);
+		int len= TFTP_RRQ_LEN(tc->fname, tc->mode);
+		memcpy(tc->msgbuf,rqq, len);
+		int b = sendto(tc->sock, rrq, len, 0, &tc->peer_addr, tc->addrlen);
 
         return b;
 }
@@ -172,10 +175,14 @@ int tftp_send_wrq(struct tftp_conn *tc)
 	u_int16_t opcode;
 	char req[0];
 	};*/	
+
 	struct tftp_wrq *wrq;
 	wrq->opcode=OPCODE_WRQ;
-	wrq->req=tc->msgbuf;
-	int b = sendto(tc->sock, wrq, int len, 0, tc->peer_addr, tc->addrlen);
+	strcpy(&wqq->req[0], tc->fname);
+	strcpy(&wqq->req[strlen(tc->fname)+1], tc->mode);
+	int len= TFTP_WRQ_LEN(tc->fname, tc->mode);
+	memcpy(tc->msgbuf,wrq, len);
+	int b = sendto(tc->sock, wrq, len, 0, tc->peer_addr, tc->addrlen);
 
     return b;
 }
@@ -243,13 +250,18 @@ int tftp_transfer(struct tftp_conn *tc)
        	
       	/* ... */
        	if (tc->type == TFTP_TYPE_PUT){
-       		tftp_send_wrq(tc);
-       		//if returns -1 is error
-
+       		if(tftp_send_wrq(tc)<0)//if returns -1 is error
+ 			{
+ 				fprintf(stderr, "send wrq error");
+ 				exit(1)
+ 			}      			
        	}
 		else if (tc->type == TFTP_TYPE_GET){
-			tftp_send_rrq(tc);
-			//if returns -1 is error
+			if(tftp_send_rrq(tc)<0)
+			{
+ 				fprintf(stderr, "send rrq error");
+ 				exit(1)
+ 			}
 		}
 
         /*

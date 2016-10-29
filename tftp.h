@@ -62,6 +62,7 @@ struct tftp_rrq {
 
 #define TFTP_RRQ_HDR_LEN sizeof(struct tftp_rrq)
 #define TFTP_RRQ_LEN(f,m) (sizeof(struct tftp_rrq) + strlen(f) + strlen(m) + 2)
+//opcode+filename(string)+1 byte+ string(mode)+1 byte
 
 /*
   A TFTP write request.
