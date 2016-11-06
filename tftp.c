@@ -182,7 +182,7 @@ int tftp_send_wrq(struct tftp_conn *tc)
 	strcpy(&wqq->req[strlen(tc->fname)+1], tc->mode);
 	int len= TFTP_WRQ_LEN(tc->fname, tc->mode);
 	memcpy(tc->msgbuf,wrq, len);
-	int b = sendto(tc->sock, wrq, len, 0, tc->peer_addr, tc->addrlen);
+	int b = sendto(tc->sock, wrq, len, 0, (struct sockaddr_in*)&tc->peer_addr, tc->addrlen);
 
     return b;
 }
@@ -197,8 +197,15 @@ int tftp_send_wrq(struct tftp_conn *tc)
 int tftp_send_ack(struct tftp_conn *tc)
 {
 	/* struct tftp_ack *ack; */
+		struct tftp_ack *ack;
+		ack->opcode=OPCODE_ACK;
+		//tc->blocknr=ntohs(((struct tftp_data*) tc->msgbuf)->blocknr);
+		//ack->blocknr=htons(tc->blocknr);
+        tc->blocknr=((struct tftp_data*) tc->msgbuf)->blocknr;
+        ack->blocknr=tc->blocknr;
+        int b = sendto(tc->sock, ack, TFTP_ACK_HDR_LEN, 0, (struct sockaddr_in*)&tc->peer_addr, tc->addrlen);
 
-        return 0;
+        return b;
 }
 
 /*
@@ -217,7 +224,10 @@ int tftp_send_ack(struct tftp_conn *tc)
 int tftp_send_data(struct tftp_conn *tc, int length)
 {
 	/* struct tftp_data *tdata; */
-        return 0;
+	struct tftp_data *tdata;
+	tc->opcode=OPCODE_DATA;
+	
+        return b;
 }
 
 /*
@@ -260,13 +270,16 @@ int tftp_transfer(struct tftp_conn *tc)
 			if(tftp_send_rrq(tc)<0)
 			{
  				fprintf(stderr, "send rrq error");
- 				exit(1)
+ 				exit(1);
  			}
+		}else{
+			goto out;
 		}
 
         /*
           Put or get the file, block by block, in a loop.
          */
+   	fd_set setfd;
 	do {
 		/* 1. Wait for something from the server (using
                  * 'select'). If a timeout occurs, resend last block
@@ -274,27 +287,59 @@ int tftp_transfer(struct tftp_conn *tc)
                  * mode. */
 
                 /* ... */
+                 FD_ZERO(&setfd);
+                 FD_SET(tc->sock, &setfd);
+        switch(select(tc->sock +1, &setfd, NULL, NULL, &timeout)){
+        	case(-1):
+        		fprintf(stderr, "send rrq error");
+        		retval = -1;
+ 				goto out;
+ 				break;
+ 			case(0):	//timeout
+ 				retval=0;
+ 				if(tc->type==TFTP_TYPE_GET){
+ 					if(opcode==0)  //if sent 1st read req, send again
+ 						tftp_send_rrq(tc);
+ 					else{ //send previous ACK again
+ 						tc->blocknr--;
+ 						tftp_send_ack(tc);						}
+ 					}
+ 				}else if(tc->type==TFTP_TYPE_PUT){
+ 					if(opcode==0)
+ 						tftp_send_wrq(tcp);
+ 					else{ //retransmit data, cus didnt receive ACK
+ 						tftp_send_data(tc, BLOCK_SIZE); //BLOCK_SIZE=512
+ 					}
+ 				}else{
+ 					goto out;
+ 				}
+ 				break;
+ 			default:
+ 				len=recvfrom(tc->sock, tc->msgbuf, sizeof(tc->msgbuf), 0, &tc->peer_addr, &tc->addrlen);
+ 				if((len==0) || (len==-1))
+ 					goto out;
+ 				break;
+        }
+        u_int16_t msgg=ntohs(((struct tftp_data*) tc->msgbuf)->opcode);
 
                 /* 2. Check the message type and take the necessary
                  * action. */
-		switch ( 0 /* change for msg type */ ) {
+		switch ( msgg/* change for msg type */ ) {
 		case OPCODE_DATA:
                         /* Received data block, send ack */
 			
 			break;
 		case OPCODE_ACK:
                         /* Received ACK, send next block */
-		/*
-struct tftp_data {
-	u_int16_t opcode;
-	u_int16_t blocknr;
-	char data[0];
-};*/
+		
 
-			break;
+		 	break;
 		case OPCODE_ERR:
                         /* Handle error... */
-                        break;
+						u_int16_t err=ntohs(((struct tftp_err*)(tc->msgbuf))->errcode);
+						fprintf(stderr, "%s\n", errcodes[errcode]);
+						retval = -1;
+						goto out;
 		default:
 			fprintf(stderr, "\nUnknown message type\n");
 			goto out;
