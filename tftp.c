@@ -149,7 +149,7 @@ int tftp_send_rrq(struct tftp_conn *tc)
 			};
 		*/
 		struct tftp_rrq *rrq;
-		rrq->opcode=OPCODE_RRQ;
+		rrq->opcode=htons(OPCODE_RRQ);// htons transforms from host to network byte order
 		strcpy(&rqq->req[0], tc->fname);
 		strcpy(&rqq->req[strlen(tc->fname)+1], tc->mode);
 		int len= TFTP_RRQ_LEN(tc->fname, tc->mode);
@@ -166,7 +166,7 @@ int tftp_send_rrq(struct tftp_conn *tc)
   3. Return the number of bytes sent, or negative on error.
  */
 int tftp_send_wrq(struct tftp_conn *tc)
-{
+{	// opcode(2 bytes), filename(), 1 byte, mode(), 1byte
 	/* struct tftp_wrq *wrq; */
 
         /* ... */
@@ -177,7 +177,7 @@ int tftp_send_wrq(struct tftp_conn *tc)
 	};*/	
 
 	struct tftp_wrq *wrq;
-	wrq->opcode=OPCODE_WRQ;
+	wrq->opcode=htons(OPCODE_WRQ);// htons transforms from host to network byte order
 	strcpy(&wqq->req[0], tc->fname);
 	strcpy(&wqq->req[strlen(tc->fname)+1], tc->mode);
 	int len= TFTP_WRQ_LEN(tc->fname, tc->mode);
@@ -198,11 +198,11 @@ int tftp_send_ack(struct tftp_conn *tc)
 {
 	/* struct tftp_ack *ack; */
 		struct tftp_ack *ack;
-		ack->opcode=OPCODE_ACK;
+		ack->opcode=htons(OPCODE_ACK);
 		//tc->blocknr=ntohs(((struct tftp_data*) tc->msgbuf)->blocknr);
 		//ack->blocknr=htons(tc->blocknr);
-        tc->blocknr=((struct tftp_data*) tc->msgbuf)->blocknr;
-        ack->blocknr=tc->blocknr;
+        tc->blocknr=ntohs(((struct tftp_data*) tc->msgbuf)->blocknr);
+        ack->blocknr=htons(tc->blocknr);
         int b = sendto(tc->sock, ack, TFTP_ACK_HDR_LEN, 0, (struct sockaddr_in*)&tc->peer_addr, tc->addrlen);
 
         return b;
@@ -224,10 +224,15 @@ int tftp_send_ack(struct tftp_conn *tc)
 int tftp_send_data(struct tftp_conn *tc, int length)
 {
 	/* struct tftp_data *tdata; */
-	struct tftp_data *tdata;
-	tc->opcode=OPCODE_DATA;
-	
-        return b;
+	struct tftp_data *tdata;tftp_send_data
+	tc->opcode=htons(OPCODE_DATA);
+	tc->blocknr=ntohs(((struct tftp_ack*)tc->msgbuf)->blocknr) + 1;
+	tdata->blocknr=htons(tc->blocknr);
+	if(!feof(tc->fp)){
+		int dl=fread(tdata->data,1, length, tc->fp); // reads 1*length bytes of tc->fp into data
+		int b = sendto(tc->sock, tdata, dl+TFTP_DATA_HDR_LEN, 0, &tc->peer_addr, tc->addrlen);
+	}
+    return b;
 }
 
 /*
@@ -240,7 +245,7 @@ int tftp_transfer(struct tftp_conn *tc)
 	int len;
 	int totlen = 0;
 	struct timeval timeout;
-
+	int fim=0;
         /* Sanity check */
 	if (!tc)
 		return -1;
@@ -298,17 +303,17 @@ int tftp_transfer(struct tftp_conn *tc)
  			case(0):	//timeout
  				retval=0;
  				if(tc->type==TFTP_TYPE_GET){
- 					if(opcode==0)  //if sent 1st read req, send again
+ 					if(tc->blocknr==0)  //if sent 1st read req, send again
  						tftp_send_rrq(tc);
  					else{ //send previous ACK again
- 						tc->blocknr--;
- 						tftp_send_ack(tc);						}
+ 						//tc->blocknr--;
+ 						tftp_send_ack(tc);					
  					}
  				}else if(tc->type==TFTP_TYPE_PUT){
- 					if(opcode==0)
+ 					if(tc->blocknr==0)
  						tftp_send_wrq(tcp);
  					else{ //retransmit data, cus didnt receive ACK
- 						tftp_send_data(tc, BLOCK_SIZE); //BLOCK_SIZE=512
+ 						len=tftp_send_data(tc, BLOCK_SIZE); //BLOCK_SIZE=512
  					}
  				}else{
  					goto out;
@@ -327,12 +332,24 @@ int tftp_transfer(struct tftp_conn *tc)
 		switch ( msgg/* change for msg type */ ) {
 		case OPCODE_DATA:
                         /* Received data block, send ack */
-			
+			tc->blocknr=ntohs(((struct tftp_data*) tc->msgbuf)->blocknr);
+			fwrite(tc->msgbuf+TFTP_DATA_HDR_LEN, 1, len- TFTP_DATA_HDR_LEN, tc->fp);
+			totlen+=len - TFTP_DATA_HDR_LEN;
+			tftp_send_ack(tc);
+			if(len<(BLOCK_SIZE+4)){
+				end=1;
+			}
+
 			break;
 		case OPCODE_ACK:
                         /* Received ACK, send next block */
-		
-
+			tc->blocknr=ntohs(((struct tftp_ack*) tc->msgbuf)->blocknr);
+			totlen+=len - TFTP_DATA_HDR_LEN;
+			if(len>0 && len<(BLOCK_SIZE+4)){
+				end=1;
+				break;
+			}
+			len=tftp_send_data(tc, BLOCK_SIZE);
 		 	break;
 		case OPCODE_ERR:
                         /* Handle error... */
@@ -346,7 +363,7 @@ int tftp_transfer(struct tftp_conn *tc)
 
 		}
 
-	} while ( 0 /* 3. Loop until file is finished */);
+	} while ( end==0 /* 3. Loop until file is finished */);
 
 	printf("\nTotal data bytes sent/received: %d.\n", totlen);
 out:
