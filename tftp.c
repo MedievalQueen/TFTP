@@ -205,13 +205,13 @@ int tftp_send_wrq(struct tftp_conn *tc)
 int tftp_send_ack(struct tftp_conn *tc)
 {
 	/* struct tftp_ack *ack; */
-		struct tftp_ack *ack;
-		ack->opcode=htons(OPCODE_ACK);
 
+		struct tftp_ack *ack=(struct tftp_ack*) malloc(TFTP_ACK_HDR_LEN);
+		ack->opcode=htons(OPCODE_ACK);
         tc->blocknr=ntohs(((struct tftp_data*) tc->msgbuf)->blocknr);
         ack->blocknr=htons(tc->blocknr);
         int b = sendto(tc->sock, ack, TFTP_ACK_HDR_LEN, 0, (struct sockaddr*)&tc->peer_addr, tc->addrlen);
-
+        free(ack);
         return b;
 }
 
@@ -350,6 +350,7 @@ int tftp_transfer(struct tftp_conn *tc)
 			fwrite(tc->msgbuf+TFTP_DATA_HDR_LEN, 1, len- TFTP_DATA_HDR_LEN, tc->fp);
 			totlen+=len - TFTP_DATA_HDR_LEN;
 //			printf("GET blocknr %d %d totlen %d", tc->blocknr, len- TFTP_DATA_HDR_LEN, totlen);
+			printf("GET data packet %d\n", tc->blocknr);
 			tftp_send_ack(tc);
 			if(len<(BLOCK_SIZE+4)){
 				end=1;
