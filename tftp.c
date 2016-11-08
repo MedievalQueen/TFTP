@@ -151,6 +151,7 @@ int tftp_send_rrq(struct tftp_conn *tc)
 			};
 		*/
 		struct tftp_rrq *rrq;
+		rrq=NULL;
 		rrq->opcode=htons(OPCODE_RRQ);// htons transforms from host to network byte order
 		strcpy(&rrq->req[0], tc->fname);
 		strcpy(&rrq->req[strlen(tc->fname)+1], tc->mode);
@@ -250,6 +251,9 @@ int tftp_transfer(struct tftp_conn *tc)
 	struct timeval timeout;
 	int end=0;
         /* Sanity check */
+	u_int16_t err;
+	u_int16_t msgg;
+
 	if (!tc)
 		return -1;
 
@@ -325,11 +329,11 @@ int tftp_transfer(struct tftp_conn *tc)
  				break;
  			default:
  				len=recvfrom(tc->sock, tc->msgbuf, sizeof(tc->msgbuf), 0, (struct sockaddr *) &tc->peer_addr, &tc->addrlen);
- 				if((len==0) || (len==-1))
+ 				//if((len==0) || (len==-1))
  					//goto out;
  				break;
         }
-        u_int16_t msgg=ntohs(((struct tftp_data*) tc->msgbuf)->opcode);
+        msgg=ntohs(((struct tftp_data*) tc->msgbuf)->opcode);
 
                 /* 2. Check the message type and take the necessary
                  * action. */
@@ -358,7 +362,7 @@ int tftp_transfer(struct tftp_conn *tc)
 
 		case OPCODE_ERR:
                         /* Handle error... */
-			u_int16_t err=ntohs(((struct tftp_err*)(tc->msgbuf))->errcode);
+			err=ntohs(((struct tftp_err*) tc->msgbuf)->errcode);
 			fprintf(stderr, "%s\n", err_codes[err]);
 			retval = -1;
 			//goto out;
