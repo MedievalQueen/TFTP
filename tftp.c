@@ -205,12 +205,14 @@ int tftp_send_wrq(struct tftp_conn *tc)
 int tftp_send_ack(struct tftp_conn *tc)
 {
 	/* struct tftp_ack *ack; */
+
 		struct tftp_ack *ack=(struct tftp_ack*) malloc(TFTP_ACK_HDR_LEN);
 	ack->opcode=htons(OPCODE_ACK);
         tc->blocknr=ntohs(((struct tftp_data*) tc->msgbuf)->blocknr);
 	ack->blocknr=htons(tc->blocknr);
 	int b = sendto(tc->sock, ack, TFTP_ACK_HDR_LEN, 0, (struct sockaddr*)&tc->peer_addr, tc->addrlen);
 	free(ack);
+
         return b;
 }
 
