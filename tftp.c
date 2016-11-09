@@ -184,14 +184,14 @@ int tftp_send_wrq(struct tftp_conn *tc)
 	char req[0];
 	};*/	
 
-	struct tftp_wrq *wrq;
+	struct tftp_wrq *wrq=malloc(TFTP_WRQ_LEN(tc->fname, tc->mode));
 	wrq->opcode=htons(OPCODE_WRQ);// htons transforms from host to network byte order
 	strcpy(&wrq->req[0], tc->fname);
 	strcpy(&wrq->req[strlen(tc->fname)+1], tc->mode);
 	int len= TFTP_WRQ_LEN(tc->fname, tc->mode);
 	memcpy(tc->msgbuf,wrq, len);
 	int b = sendto(tc->sock, wrq, len, 0, (struct sockaddr*)&tc->peer_addr, tc->addrlen);
-
+	free(wrq);
     return b;
 }
 
