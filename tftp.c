@@ -256,8 +256,8 @@ int tftp_transfer(struct tftp_conn *tc)
 	int totlen = 0;
 	struct timeval timeout;
 	int end=0;
-	int bSent;
-	int bRcvd;
+	int bSent=0;
+	int bRcvd=0;
         /* Sanity check */
 	u_int16_t err;
 	u_int16_t msgg;
@@ -339,7 +339,7 @@ int tftp_transfer(struct tftp_conn *tc)
  				break;
  			default:
  				bRcvd=recvfrom(tc->sock, tc->msgbuf, sizeof(tc->msgbuf), 0, (struct sockaddr *) &(tc->peer_addr), &tc->addrlen);
- 				if((len==0) || (len==-1))
+ 				if((bRcvd==0) || (bRcvd==-1))
  					goto out;
  				break;
         }
@@ -373,7 +373,7 @@ int tftp_transfer(struct tftp_conn *tc)
 			}
 		printf("GOT ACK %d\n", tc->blocknr);
 			bSent=tftp_send_data(tc, BLOCK_SIZE);
-		printf("Sent Data \n");
+		printf("Sent Data %d\n");
 		 	break;
 
 		case OPCODE_ERR:
