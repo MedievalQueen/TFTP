@@ -16,6 +16,8 @@
 #include "tftp.h"
 
 extern int h_errno;
+  char* sent;
+  int lengsent;
 
 #define TFTP_TYPE_GET 0
 #define TFTP_TYPE_PUT 1
@@ -56,8 +58,7 @@ void tftp_close(struct tftp_conn *tc)
 }
 
 /* Connect to a remote TFTP server.    type=get or put mode=octet*/
-struct tftp_conn *tftp_connect(int type, char *fname, char *mode,
-			       const char *hostname)
+struct tftp_conn *tftp_connect(int type, char *fname, char *mode, const char *hostname)
 {
     struct addrinfo hints;
     struct addrinfo * res = NULL;
@@ -230,19 +231,37 @@ int tftp_send_ack(struct tftp_conn *tc)
   passing a negative length indicating that the creation of a new
   message should be skipped.
  */
+
+
 int tftp_send_data(struct tftp_conn *tc, int length)
 {
 	/* struct tftp_data *tdata; */
-	struct tftp_data *tdata;
+	struct tftp_data *tdata=malloc(TFTP_DATA_HDR_LEN+BLOCK_SIZE);
+	memset(tdata, 0, TFTP_DATA_HDR_LEN+length);
 	tdata->opcode=htons(OPCODE_DATA);
-	tc->blocknr=ntohs(((struct tftp_ack*)tc->msgbuf)->blocknr) + 1;
-	tdata->blocknr=htons(tc->blocknr);
-	if(!feof(tc->fp)){
-		int dl=fread(tdata->data,1, length, tc->fp); // reads 1*length bytes of tc->fp into data
-		int b = sendto(tc->sock, tdata, dl+TFTP_DATA_HDR_LEN, 0, (struct sockaddr *) &tc->peer_addr, tc->addrlen);
+
+	if(tc->blocknr != 1+ntohs(((struct tftp_ack*)tc->msgbuf)->blocknr)){
+		tc->blocknr=ntohs(((struct tftp_ack*)tc->msgbuf)->blocknr) + 1;
+		tdata->blocknr=htons(tc->blocknr);
+		if(!feof(tc->fp)){
+			int dl=fread(tdata->data,1, length, tc->fp); // reads 1*length bytes of tc->fp into data
+			int b = sendto(tc->sock, tdata, dl+TFTP_DATA_HDR_LEN, 0, (struct sockaddr *) &tc->peer_addr, tc->addrlen);
+			sent=malloc(dl);
+			memset(sent, 0, dl);
+			memcpy(sent,tdata->data, dl);
+			lengsent=dl;
+			free(tdata);
+			return b;
+		}
+		return -1;
+	}
+	else{
+		tdata->blocknr=htons(tc->blocknr);
+		memcpy(tdata->data, sent, lengsent);
+		int b = sendto(tc->sock, tdata, TFTP_DATA_HDR_LEN+lengsent, 0, (struct sockaddr *) &tc->peer_addr, tc->addrlen);
+		free(tdata);
 		return b;
 	}
-    return -1;
 }
 
 /*
@@ -251,8 +270,10 @@ int tftp_send_data(struct tftp_conn *tc, int length)
  */
 int tftp_transfer(struct tftp_conn *tc)
 {
+	int lastblocknr=0;
+	int recvdAcknr=0;
 	int retval = 0;
-	int len;
+	//int len;
 	int totlen = 0;
 	struct timeval timeout;
 	int end=0;
@@ -265,7 +286,7 @@ int tftp_transfer(struct tftp_conn *tc)
 	if (!tc)
 		return -1;
 
-        len = 0;
+        //len = 0;
 
 	/* After the connection request we should start receiving data
 	 * immediately */
@@ -350,12 +371,14 @@ int tftp_transfer(struct tftp_conn *tc)
 		switch ( msgg/* change for msg type */ ) {
 		case OPCODE_DATA:
                         /* Received data block, send ack */
-			tc->blocknr=ntohs(((struct tftp_data*) tc->msgbuf)->blocknr);
-			fwrite(tc->msgbuf+TFTP_DATA_HDR_LEN, 1, bRcvd- TFTP_DATA_HDR_LEN, tc->fp);
-			totlen+=bRcvd - TFTP_DATA_HDR_LEN;
-	printf("Got Data %d\n", tc->blocknr);
+			lastblocknr=ntohs(((struct tftp_data*) tc->msgbuf)->blocknr);
+			if(tc->blocknr==lastblocknr - 1){
+				fwrite(tc->msgbuf+TFTP_DATA_HDR_LEN, 1, bRcvd- TFTP_DATA_HDR_LEN, tc->fp);
+				totlen += bRcvd - TFTP_DATA_HDR_LEN;
+			}
+			printf("Got Data %d\n", tc->blocknr);
 			tftp_send_ack(tc);
-	printf("Sent ACK\n");
+			printf("Sent ACK\n");
 			if(bRcvd<(BLOCK_SIZE+4)){
 				printf("finished receiving data\n");
 				end=1;
@@ -364,16 +387,18 @@ int tftp_transfer(struct tftp_conn *tc)
 
 		case OPCODE_ACK:
                         /* Received ACK, send next block */
-			tc->blocknr=ntohs(((struct tftp_ack*) tc->msgbuf)->blocknr);
-			totlen+=bSent - TFTP_DATA_HDR_LEN;
-			if(tc->blocknr>0 && bSent<(BLOCK_SIZE+4)){
-				printf("finished sending data\n");
-				end=1;
-				break;
+			recvdAcknr=ntohs(((struct tftp_ack*) tc->msgbuf)->blocknr);
+			if(recvdAcknr>0 && tc->blocknr==recvdAcknr){
+				totlen+=bSent - TFTP_DATA_HDR_LEN;
+				if((recvdAcknr>0) && (bSent<(BLOCK_SIZE+4))){
+					printf("finished sending data\n");
+					end=1;
+					break;
+				}
 			}
-		printf("GOT ACK %d\n", tc->blocknr);
+			printf("GOT ACK %d\n", tc->blocknr);
 			bSent=tftp_send_data(tc, BLOCK_SIZE);
-		printf("Sent Data %d\n");
+			printf("Sent Data \n");
 		 	break;
 
 		case OPCODE_ERR:
