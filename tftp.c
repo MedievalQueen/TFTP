@@ -185,6 +185,7 @@ int tftp_send_wrq(struct tftp_conn *tc)
 	};*/	
 
 	struct tftp_wrq *wrq=malloc(TFTP_WRQ_LEN(tc->fname, tc->mode));
+	memset(wrq, 0, TFTP_WRQ_LEN(tc->fname, tc->mode));
 	wrq->opcode=htons(OPCODE_WRQ);// htons transforms from host to network byte order
 	strcpy(&wrq->req[0], tc->fname);
 	strcpy(&wrq->req[strlen(tc->fname)+1], tc->mode);
@@ -255,6 +256,8 @@ int tftp_transfer(struct tftp_conn *tc)
 	int totlen = 0;
 	struct timeval timeout;
 	int end=0;
+	int bSent;
+	int bRcvd;
         /* Sanity check */
 	u_int16_t err;
 	u_int16_t msgg;
@@ -327,7 +330,7 @@ int tftp_transfer(struct tftp_conn *tc)
  					if(tc->blocknr==0)
  						tftp_send_wrq(tc);
  					else{ //retransmit data, cus didnt receive ACK
- 						len=tftp_send_data(tc, BLOCK_SIZE); //BLOCK_SIZE=512
+ 						bSent=tftp_send_data(tc, BLOCK_SIZE); //BLOCK_SIZE=512
  					}
  				}else{
  					   retval = -1;
@@ -335,7 +338,7 @@ int tftp_transfer(struct tftp_conn *tc)
  				}
  				break;
  			default:
- 				len=recvfrom(tc->sock, tc->msgbuf, sizeof(tc->msgbuf), 0, (struct sockaddr *) &(tc->peer_addr), &tc->addrlen);
+ 				bRcvd=recvfrom(tc->sock, tc->msgbuf, sizeof(tc->msgbuf), 0, (struct sockaddr *) &(tc->peer_addr), &tc->addrlen);
  				if((len==0) || (len==-1))
  					goto out;
  				break;
@@ -348,12 +351,13 @@ int tftp_transfer(struct tftp_conn *tc)
 		case OPCODE_DATA:
                         /* Received data block, send ack */
 			tc->blocknr=ntohs(((struct tftp_data*) tc->msgbuf)->blocknr);
-			fwrite(tc->msgbuf+TFTP_DATA_HDR_LEN, 1, len- TFTP_DATA_HDR_LEN, tc->fp);
-			totlen+=len - TFTP_DATA_HDR_LEN;
-	printf("GET %d\n\n", tc->blocknr);
+			fwrite(tc->msgbuf+TFTP_DATA_HDR_LEN, 1, bRcvd- TFTP_DATA_HDR_LEN, tc->fp);
+			totlen+=bRcvd - TFTP_DATA_HDR_LEN;
+	printf("Got Data %d\n", tc->blocknr);
 			tftp_send_ack(tc);
-printf("Received a packet\n\n");
-			if(len<(BLOCK_SIZE+4)){
+	printf("Sent ACK\n");
+			if(bRcvd<(BLOCK_SIZE+4)){
+				printf("finished receiving data\n");
 				end=1;
 			}
 			break;
@@ -361,12 +365,15 @@ printf("Received a packet\n\n");
 		case OPCODE_ACK:
                         /* Received ACK, send next block */
 			tc->blocknr=ntohs(((struct tftp_ack*) tc->msgbuf)->blocknr);
-			totlen+=len - TFTP_DATA_HDR_LEN;
-			if(len>0 && len<(BLOCK_SIZE+4)){
+			totlen+=bSent - TFTP_DATA_HDR_LEN;
+			if(tc->blocknr>0 && bSent<(BLOCK_SIZE+4)){
+				printf("finished sending data\n");
 				end=1;
 				break;
 			}
-			len=tftp_send_data(tc, BLOCK_SIZE);
+		printf("GOT ACK %d\n", tc->blocknr);
+			bSent=tftp_send_data(tc, BLOCK_SIZE);
+		printf("Sent Data \n");
 		 	break;
 
 		case OPCODE_ERR:
