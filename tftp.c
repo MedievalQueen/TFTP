@@ -73,9 +73,10 @@ struct tftp_conn *tftp_connect(int type, char *fname, char *mode,
 
 	/* Create a socket.
 	 * Check return value. */
-	tc->sock= socket(AF_INET, SOCK_DGRAM, 0);
-	if(tc->sock < 0){
+	
+	if((tc->sock= socket(AF_INET, SOCK_DGRAM, 0))<0){
 		fprintf(stderr, "Cant create socket.\n");
+		free(tc);
 		return NULL;
 	}
 
@@ -105,10 +106,10 @@ struct tftp_conn *tftp_connect(int type, char *fname, char *mode,
 
     /* get address from host name.
 	 * If error, gracefully clean up.*/
-    int status;
-    if((status=getaddrinfo(hostname, port_str, &hints, &res)) !=0 ){
-    	fprintf(stderr, "getaddressinfo error: %s\n", gai_strerror(status));
-    	//free(res);
+    if(getaddrinfo(hostname, port_str, &hints, &res) != 0){
+    	fprintf(stderr, "getaddressinfo error: \n");
+    	close(tc->sock);
+    	free(tc);
     	exit(1);
     }
 	/* ... */
@@ -150,15 +151,19 @@ int tftp_send_rrq(struct tftp_conn *tc)
 				char req[0];
 			};
 		*/
-		struct tftp_rrq *rrq;
-		rrq=NULL;
-		rrq->opcode=htons(OPCODE_RRQ);// htons transforms from host to network byte order
+		struct tftp_rrq *rrq=malloc(TFTP_RRQ_LEN(tc->fname,tc->mode));
+		//rrq=NULL;
+		//rrq->opcode=htons(OPCODE_RRQ);// htons transforms from host to network byte order
+		memset(rrq,0, TFTP_RRQ_LEN(tc->fname, tc->mode));
+		rrq->opcode=htons(OPCODE_RRQ);
+		//memcpy(rrq->req, tc->fname, strlen(tc->fname));
+		//memcpy(rrq->req +strlen(tc->fname)+1,tc->mode, strlen(tc->mode));
 		strcpy(&rrq->req[0], tc->fname);
 		strcpy(&rrq->req[strlen(tc->fname)+1], tc->mode);
 		int len= TFTP_RRQ_LEN(tc->fname, tc->mode);
 		memcpy(tc->msgbuf,rrq, len);
 		int b = sendto(tc->sock, rrq, len, 0, (struct sockaddr *)& tc->peer_addr, tc->addrlen);
-
+		free(rrq);
         return b;
 }
 /*
@@ -200,14 +205,12 @@ int tftp_send_wrq(struct tftp_conn *tc)
 int tftp_send_ack(struct tftp_conn *tc)
 {
 	/* struct tftp_ack *ack; */
-		struct tftp_ack *ack;
-		ack->opcode=htons(OPCODE_ACK);
-		//tc->blocknr=ntohs(((struct tftp_data*) tc->msgbuf)->blocknr);
-		//ack->blocknr=htons(tc->blocknr);
+		struct tftp_ack *ack=(struct tftp_ack*) malloc(TFTP_ACK_HDR_LEN);
+	ack->opcode=htons(OPCODE_ACK);
         tc->blocknr=ntohs(((struct tftp_data*) tc->msgbuf)->blocknr);
-        ack->blocknr=htons(tc->blocknr);
-        int b = sendto(tc->sock, ack, TFTP_ACK_HDR_LEN, 0, (struct sockaddr*)&tc->peer_addr, tc->addrlen);
-
+	ack->blocknr=htons(tc->blocknr);
+	int b = sendto(tc->sock, ack, TFTP_ACK_HDR_LEN, 0, (struct sockaddr*)&tc->peer_addr, tc->addrlen);
+	free(ack);
         return b;
 }
 
@@ -285,7 +288,8 @@ int tftp_transfer(struct tftp_conn *tc)
  				exit(1);
  			}
 		}else{
-			//goto out;
+			retval= -1;
+			goto out;
 		}
 
         /*
@@ -306,7 +310,7 @@ int tftp_transfer(struct tftp_conn *tc)
         	case -1:
         		fprintf(stderr, "send rrq error");
         		retval = -1;
- 				//goto out;
+ 				goto out;
  				break;
  			case 0:	//timeout
  				retval=0;
@@ -324,16 +328,17 @@ int tftp_transfer(struct tftp_conn *tc)
  						len=tftp_send_data(tc, BLOCK_SIZE); //BLOCK_SIZE=512
  					}
  				}else{
- 					//goto out;
+ 					   retval = -1;
+ 					goto out;
  				}
  				break;
  			default:
- 				len=recvfrom(tc->sock, tc->msgbuf, sizeof(tc->msgbuf), 0, (struct sockaddr *) &tc->peer_addr, &tc->addrlen);
- 				//if((len==0) || (len==-1))
- 					//goto out;
+ 				len=recvfrom(tc->sock, tc->msgbuf, sizeof(tc->msgbuf), 0, (struct sockaddr *) &(tc->peer_addr), &tc->addrlen);
+ 				if((len==0) || (len==-1))
+ 					goto out;
  				break;
         }
-        msgg=ntohs(((struct tftp_data*) tc->msgbuf)->opcode);
+        msgg=ntohs(((struct tftp_msg*) (tc->msgbuf))->opcode);
 
                 /* 2. Check the message type and take the necessary
                  * action. */
@@ -343,7 +348,9 @@ int tftp_transfer(struct tftp_conn *tc)
 			tc->blocknr=ntohs(((struct tftp_data*) tc->msgbuf)->blocknr);
 			fwrite(tc->msgbuf+TFTP_DATA_HDR_LEN, 1, len- TFTP_DATA_HDR_LEN, tc->fp);
 			totlen+=len - TFTP_DATA_HDR_LEN;
+	printf("GET %d\n\n", tc->blocknr);
 			tftp_send_ack(tc);
+printf("Received a packet\n\n");
 			if(len<(BLOCK_SIZE+4)){
 				end=1;
 			}
@@ -365,17 +372,17 @@ int tftp_transfer(struct tftp_conn *tc)
 			err=ntohs(((struct tftp_err*) tc->msgbuf)->errcode);
 			fprintf(stderr, "%s\n", err_codes[err]);
 			retval = -1;
-			//goto out;
+			goto out;
 
 		default:
 			fprintf(stderr, "\nUnknown message type\n");
-			//goto out;
+			goto out;
 		}
 
 	} while ( end==0 /* 3. Loop until file is finished */);
 
 	printf("\nTotal data bytes sent/received: %d.\n", totlen);
-	//out:  
+out:  
 		return retval;
 }
 
